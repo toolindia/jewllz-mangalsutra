@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Flipbook</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #232526, #0f0f10);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      color: #fff;
+    }
+
+    .flipbook-container {
+      perspective: 2000px;
+      width: 320px;
+      height: 480px;
+      position: relative;
+      filter: drop-shadow(0 25px 35px rgba(0, 0, 0, 0.6));
+    }
+
+    .book {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+    }
+
+    .page {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      transform-origin: left center;
+      transform-style: preserve-3d;
+      transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+      cursor: pointer;
+      border-radius: 4px 12px 12px 4px;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .page-face {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden;
+      background-color: #1a1a1a;
+      overflow: hidden;
+    }
+
+    .page-face img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Page front styling & spine shadow */
+    .front {
+      z-index: 2;
+      box-shadow: inset 18px 0 30px -10px rgba(0, 0, 0, 0.55);
+    }
+
+    /* Page back flipped state */
+    .back {
+      transform: rotateY(180deg);
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .back::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to right, rgba(0, 0, 0, 0.6), transparent 40%);
+    }
+
+    /* Flipped class */
+    .page.flipped {
+      transform: rotateY(-180deg);
+    }
+
+    /* Controls */
+    .controls {
+      margin-top: 35px;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+
+    button {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: all 0.2s ease;
+    }
+
+    button:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.4);
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .indicator {
+      font-size: 13px;
+      color: #888;
+      min-width: 65px;
+      text-align: center;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="flipbook-container">
+    <div class="book" id="book"></div>
+  </div>
+
+  <div class="controls">
+    <button id="prevBtn">&larr; Prev</button>
+    <button id="toggleLoopBtn">Pause</button>
+    <button id="nextBtn">Next &rarr;</button>
+    <span class="indicator" id="pageIndicator"></span>
+  </div>
+
+  <script>
+    // Ordered list of the supplied image assets
+    const images = [
+      "https://i.ibb.co/7xyNxptG/1-2-3-1.png",
+      "https://i.ibb.co/FLNkvRQq/1-3-1-1.png",
+      "https://i.ibb.co/v6tptgkw/1-4-1-1.png",
+      "https://i.ibb.co/jZ4NNsVD/1-5-1-1.png",
+      "https://i.ibb.co/1Gv7sMqs/1-6-1-1.png",
+      "https://i.ibb.co/Fbr6ZRTb/1-7-1-1.png",
+      "https://i.ibb.co/gLPhJ1HB/1-8-1.png",
+      "https://i.ibb.co/5WzHgzqc/1-9-1.png",
+      "https://i.ibb.co/HfLbdKfj/1-10-1.png"
+    ];
+
+    const book = document.getElementById("book");
+    const indicator = document.getElementById("pageIndicator");
+    const toggleLoopBtn = document.getElementById("toggleLoopBtn");
+    const totalPages = images.length;
+    let currentIndex = 0; // Number of flipped pages
+    let loopInterval = null;
+    let isLooping = true;
+    const LOOP_INTERVAL_MS = 2400; // Flip every 2.4 seconds
+
+    // 1. Render pages into DOM with stacking order
+    images.forEach((src, i) => {
+      const page = document.createElement("div");
+      page.className = "page";
+      page.dataset.index = i;
+      // Stacking order: top page has highest z-index
+      page.style.zIndex = totalPages - i;
+
+      page.innerHTML = `
+        <div class="page-face front">
+          <img src="${src}" alt="Page ${i + 1}" loading="lazy" />
+        </div>
+        <div class="page-face back"></div>
+      `;
+
+      page.addEventListener("click", () => {
+        if (page.classList.contains("flipped")) {
+          turnBack();
+        } else {
+          turnForward();
+        }
+      });
+
+      book.appendChild(page);
+    });
+
+    const pages = document.querySelectorAll(".page");
+
+    function updateIndicator() {
+      indicator.textContent = `${currentIndex + 1} / ${totalPages}`;
+    }
+
+    function turnForward() {
+      if (currentIndex < totalPages) {
+        const page = pages[currentIndex];
+        page.classList.add("flipped");
+        // Elevate flipped page so it stacks neatly on the left side
+        page.style.zIndex = totalPages + currentIndex;
+        currentIndex++;
+        updateIndicator();
+      } else {
+        // Reset sequence back to first page when loop ends
+        resetToBeginning();
+      }
+    }
+
+    function turnBack() {
+      if (currentIndex > 0) {
+        currentIndex--;
+        const page = pages[currentIndex];
+        page.classList.remove("flipped");
+        // Restore initial stacking order
+        page.style.zIndex = totalPages - currentIndex;
+        updateIndicator();
+      }
+    }
+
+    function resetToBeginning() {
+      // Unflip in reverse so layers nest smoothly
+      for (let i = totalPages - 1; i >= 0; i--) {
+        setTimeout(() => {
+          pages[i].classList.remove("flipped");
+          pages[i].style.zIndex = totalPages - i;
+        }, (totalPages - 1 - i) * 60);
+      }
+      currentIndex = 0;
+      updateIndicator();
+    }
+
+    // 2. Loop management
+    function startAutoLoop() {
+      isLooping = true;
+      toggleLoopBtn.textContent = "Pause";
+      clearInterval(loopInterval);
+      loopInterval = setInterval(turnForward, LOOP_INTERVAL_MS);
+    }
+
+    function stopAutoLoop() {
+      isLooping = false;
+      toggleLoopBtn.textContent = "Play";
+      clearInterval(loopInterval);
+    }
+
+    // Controls
+    document.getElementById("nextBtn").addEventListener("click", () => {
+      turnForward();
+    });
+
+    document.getElementById("prevBtn").addEventListener("click", () => {
+      turnBack();
+    });
+
+    toggleLoopBtn.addEventListener("click", () => {
+      if (isLooping) {
+        stopAutoLoop();
+      } else {
+        startAutoLoop();
+      }
+    });
+
+    // Start auto loop on load
+    updateIndicator();
+    startAutoLoop();
+  </script>
+</body>
+</html>
